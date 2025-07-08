@@ -381,10 +381,11 @@
             const indent = '  '.repeat(depth);
             let html = '';
 
-            if (node.children && node.children.length > 0) {
-                if (depth > 0) {
-                    html += `<div class="file-item file-dir">${indent}📁 ${node.name}/</div>`;
-                }
+                         if (node.children && node.children.length > 0) {
+                 if (depth > 0) {
+                     const githubLink = node.github_url ? ` <a href="${node.github_url}" target="_blank" style="color: #667eea; text-decoration: none;">🔗</a>` : '';
+                     html += `<div class="file-item file-dir">${indent}📁 ${node.name}/${githubLink}</div>`;
+                 }
                 
                 const children = node.children.slice(0, maxChildren);
                 for (const child of children) {
@@ -394,11 +395,12 @@
                 if (node.children.length > maxChildren) {
                     html += `<div class="file-item" style="color: #718096;">${indent}  ... and ${node.children.length - maxChildren} more items</div>`;
                 }
-            } else if (depth > 0) {
-                const icon = getFileIcon(node.extension);
-                const size = node.size ? ` <span class="file-size">(${formatFileSize(node.size)})</span>` : '';
-                html += `<div class="file-item file-file">${indent}${icon} ${node.name}${size}</div>`;
-            }
+                         } else if (depth > 0) {
+                 const icon = getFileIcon(node.extension);
+                 const size = node.size ? ` <span class="file-size">(${formatFileSize(node.size)})</span>` : '';
+                 const githubLink = node.github_url ? ` <a href="${node.github_url}" target="_blank" style="color: #667eea; text-decoration: none;">🔗</a>` : '';
+                 html += `<div class="file-item file-file">${indent}${icon} ${node.name}${size}${githubLink}</div>`;
+             }
 
             return html;
         }

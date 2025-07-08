@@ -164,6 +164,9 @@ app.get('/result/:jobId', async (req, res) => {
       }
     }
     
+    // Enrich files with GitHub URLs
+    const enrichedFiles = repoProcessor.enrichWithGitHubUrls(files, job.repo_url);
+    
     // Format response based on requested format
     let responseData = {
       job_id: job.id,
@@ -171,11 +174,11 @@ app.get('/result/:jobId', async (req, res) => {
       repo_name: job.repo_name,
       status: job.status,
       summary: resultData,
-      files: files
+      files: enrichedFiles
     };
     
     if (format === 'hierarchical') {
-      responseData.hierarchy = repoProcessor.generateHierarchy(files);
+      responseData.hierarchy = repoProcessor.generateHierarchy(enrichedFiles);
     }
     
     res.json(responseData);

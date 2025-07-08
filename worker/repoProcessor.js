@@ -59,9 +59,14 @@ class RepoProcessor {
     }
   }
 
-  async processDirectory(dirPath, jobId, parentFolderId = null, depth = 0) {
+  async processDirectory(dirPath, jobId, parentFolderId = null, depth = 0, repoRootPath = null) {
     const files = [];
     const folderMap = new Map(); // To track folder IDs for parent-child relationships
+    
+    // Set repo root path if not provided (first call)
+    if (repoRootPath === null) {
+      repoRootPath = dirPath;
+    }
     
     try {
       const items = await fs.readdir(dirPath);
@@ -77,10 +82,13 @@ class RepoProcessor {
         const isDirectory = stats.isDirectory();
         const fileId = uuidv4();
         
+        // Create relative path from repo root
+        const relativePath = path.relative(repoRootPath, itemPath);
+        
         const fileData = {
           id: fileId,
           job_id: jobId,
-          file_path: itemPath,
+          file_path: relativePath || '.', // Use '.' for root directory
           file_name: item,
           extension: isDirectory ? null : this.getFileExtension(item),
           parent_folder_id: parentFolderId,
@@ -96,7 +104,7 @@ class RepoProcessor {
           folderMap.set(itemPath, fileId);
           
           // Recursively process subdirectories
-          const subFiles = await this.processDirectory(itemPath, jobId, fileId, depth + 1);
+          const subFiles = await this.processDirectory(itemPath, jobId, fileId, depth + 1, repoRootPath);
           files.push(...subFiles);
         }
       }
@@ -167,11 +175,45 @@ class RepoProcessor {
     }
   }
 
-  // Convert file paths to relative paths for better visualization
-  normalizeFilePaths(files, basePath) {
+  // Generate GitHub URL for a file
+  generateGitHubUrl(repoUrl, filePath, branch = 'main') {
+    // Remove .git suffix if present
+    const baseUrl = repoUrl.replace(/\.git$/, '');
+    
+    // Handle root directory
+    if (filePath === '.' || filePath === '') {
+      return baseUrl;
+    }
+    
+    // Convert path separators to forward slashes for URLs
+    const normalizedPath = filePath.replace(/\\/g, '/');
+    
+    return `${baseUrl}/blob/${branch}/${normalizedPath}`;
+  }
+
+  // Generate GitHub tree URL for directories
+  generateGitHubTreeUrl(repoUrl, filePath, branch = 'main') {
+    // Remove .git suffix if present
+    const baseUrl = repoUrl.replace(/\.git$/, '');
+    
+    // Handle root directory
+    if (filePath === '.' || filePath === '') {
+      return `${baseUrl}/tree/${branch}`;
+    }
+    
+    // Convert path separators to forward slashes for URLs
+    const normalizedPath = filePath.replace(/\\/g, '/');
+    
+    return `${baseUrl}/tree/${branch}/${normalizedPath}`;
+  }
+
+  // Add GitHub URLs to file data
+  enrichWithGitHubUrls(files, repoUrl, branch = 'main') {
     return files.map(file => ({
       ...file,
-      file_path: path.relative(basePath, file.file_path)
+      github_url: file.is_directory 
+        ? this.generateGitHubTreeUrl(repoUrl, file.file_path, branch)
+        : this.generateGitHubUrl(repoUrl, file.file_path, branch)
     }));
   }
 
@@ -200,6 +242,7 @@ class RepoProcessor {
         isDirectory: file.is_directory,
         size: file.size,
         depth: file.depth,
+        github_url: file.github_url,
         children: file.is_directory ? [] : undefined
       };
       

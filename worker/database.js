@@ -25,6 +25,7 @@ class Database {
         id TEXT PRIMARY KEY,
         repo_url TEXT NOT NULL,
         repo_name TEXT NOT NULL,
+        branch TEXT DEFAULT 'main',
         status TEXT DEFAULT 'pending',
         created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
         updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
