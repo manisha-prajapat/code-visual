@@ -1,3 +1,5 @@
+import './components/CodebaseVisualizer.css';
+import './components/FileExplorer.css';
 export { CodebaseVisualizer } from './components/CodebaseVisualizer';
 export { FileExplorer } from './components/FileExplorer';
 export { CodebaseVisualizerAPI } from './api';

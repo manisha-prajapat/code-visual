@@ -1,3 +1,7 @@
+// CSS imports - must be first
+import './components/CodebaseVisualizer.css';
+import './components/FileExplorer.css';
+
 // Main components
 export { CodebaseVisualizer } from './components/CodebaseVisualizer';
 export { FileExplorer } from './components/FileExplorer';
@@ -28,7 +32,3 @@ export {
   searchFiles,
   getLanguageFromExtension
 } from './utils';
-
-// CSS files are automatically handled by the build process
-// import './components/CodebaseVisualizer.css';
-// import './components/FileExplorer.css';

@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { CodebaseVisualizer, FileItem } from '@codebase-visualizer/file-explorer';
+import '@codebase-visualizer/file-explorer/dist/index.css';
 import './App.css';
 
 function App() {
