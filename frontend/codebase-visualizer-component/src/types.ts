@@ -62,6 +62,7 @@ export interface CodebaseVisualizerProps {
   showGitHubLinks?: boolean;
   maxDepth?: number;
   className?: string;
+  viewMode?: 'tree' | 'graph';
 }
 
 export interface FileExplorerProps {

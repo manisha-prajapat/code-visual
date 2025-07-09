@@ -7,6 +7,7 @@ function App() {
   const [selectedFile, setSelectedFile] = useState<FileItem | null>(null);
   const [selectedDirectory, setSelectedDirectory] = useState<FileItem | null>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
+  const [viewMode, setViewMode] = useState<'tree' | 'graph'>('tree');
 
   const handleFileSelect = (file: FileItem) => {
     setSelectedFile(file);
@@ -22,15 +23,24 @@ function App() {
     setTheme(prev => prev === 'light' ? 'dark' : 'light');
   };
 
+  const toggleViewMode = () => {
+    setViewMode(prev => prev === 'tree' ? 'graph' : 'tree');
+  };
+
   return (
     <div className={`App ${theme}`}>
       <header className="App-header">
         <div className="header-content">
           <h1>🌳 Codebase Visualizer</h1>
           <p>Explore and visualize any GitHub repository structure</p>
-          <button onClick={toggleTheme} className="theme-toggle">
-            {theme === 'light' ? '🌙' : '☀️'} {theme === 'light' ? 'Dark' : 'Light'} Mode
-          </button>
+          <div className="header-controls">
+            <button onClick={toggleViewMode} className="view-toggle">
+              {viewMode === 'tree' ? '🌐' : '📁'} {viewMode === 'tree' ? 'Graph View' : 'Tree View'}
+            </button>
+            <button onClick={toggleTheme} className="theme-toggle">
+              {theme === 'light' ? '🌙' : '☀️'} {theme === 'light' ? 'Dark' : 'Light'} Mode
+            </button>
+          </div>
         </div>
       </header>
 
@@ -43,6 +53,7 @@ function App() {
           defaultRepoUrl="https://github.com/octocat/Hello-World"
           showGitHubLinks={true}
           maxDepth={10}
+          viewMode={viewMode}
         />
 
         {(selectedFile || selectedDirectory) && (

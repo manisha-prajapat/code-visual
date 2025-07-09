@@ -2,6 +2,7 @@
 
 var jsxRuntime = require('react/jsx-runtime');
 var React = require('react');
+var d3 = require('d3');
 
 function _interopNamespaceDefault(e) {
     var n = Object.create(null);
@@ -21,6 +22,7 @@ function _interopNamespaceDefault(e) {
 }
 
 var React__namespace = /*#__PURE__*/_interopNamespaceDefault(React);
+var d3__namespace = /*#__PURE__*/_interopNamespaceDefault(d3);
 
 /******************************************************************************
 Copyright (c) Microsoft Corporation.
@@ -540,15 +542,325 @@ var FileExplorer = function (_a) {
     return (jsxRuntime.jsxs("div", { className: "file-explorer ".concat(className), children: [jsxRuntime.jsxs("div", { className: "file-explorer-header", children: [jsxRuntime.jsx("h3", { className: "file-explorer-title", children: "File Explorer" }), jsxRuntime.jsxs("div", { className: "file-explorer-stats", children: [jsxRuntime.jsxs("span", { children: [stats.totalFiles, " files"] }), jsxRuntime.jsxs("span", { children: [stats.totalDirectories, " folders"] }), jsxRuntime.jsx("span", { children: formatFileSize(stats.totalSize) })] })] }), jsxRuntime.jsx("div", { className: "file-explorer-search", children: jsxRuntime.jsx("input", { type: "text", placeholder: "Search files and folders...", value: searchQuery, onChange: function (e) { return setSearchQuery(e.target.value); } }) }), jsxRuntime.jsx("div", { className: "file-explorer-content", children: processedFiles.length === 0 ? (jsxRuntime.jsx("div", { className: "file-explorer-empty", children: "No files match your search" })) : (renderTree()) })] }));
 };
 
+// Extension color mapping
+var EXTENSION_COLORS = {
+    // JavaScript/TypeScript
+    'js': '#f7df1e',
+    'jsx': '#61dafb',
+    'ts': '#3178c6',
+    'tsx': '#61dafb',
+    // Web Technologies
+    'html': '#e34f26',
+    'css': '#1572b6',
+    'scss': '#cf649a',
+    'sass': '#cf649a',
+    'less': '#1d365d',
+    // Programming Languages
+    'py': '#3776ab',
+    'java': '#ed8b00',
+    'cpp': '#00599c',
+    'c': '#a8b9cc',
+    'cs': '#239120',
+    'php': '#777bb4',
+    'rb': '#cc342d',
+    'go': '#00add8',
+    'rs': '#dea584',
+    'swift': '#fa7343',
+    'kt': '#7f52ff',
+    // Data & Config
+    'json': '#000000',
+    'xml': '#ff6600',
+    'yaml': '#cb171e',
+    'yml': '#cb171e',
+    'toml': '#9c4221',
+    'ini': '#427819',
+    'env': '#ecd53f',
+    // Documentation
+    'md': '#083fa1',
+    'txt': '#89cdf1',
+    'rst': '#141414',
+    // Images
+    'png': '#ff69b4',
+    'jpg': '#ff1493',
+    'jpeg': '#ff1493',
+    'gif': '#ff6347',
+    'svg': '#ffb13b',
+    'webp': '#8a2be2',
+    // Archives
+    'zip': '#ff9500',
+    'tar': '#8b4513',
+    'gz': '#654321',
+    // Default
+    'directory': '#6366f1',
+    'unknown': '#9ca3af'
+};
+var CodebaseGraph = function (_a) {
+    _a.files; var hierarchy = _a.hierarchy, _c = _a.className, className = _c === void 0 ? '' : _c, _d = _a.theme, theme = _d === void 0 ? 'light' : _d, onNodeClick = _a.onNodeClick;
+    var svgRef = React.useRef(null);
+    var containerRef = React.useRef(null);
+    var mountedRef = React.useRef(false);
+    var _e = React.useState(''), searchQuery = _e[0], setSearchQuery = _e[1];
+    var _f = React.useState(null), zoom = _f[0], setZoom = _f[1];
+    var _g = React.useState(null); _g[0]; var setSimulation = _g[1];
+    var _h = React.useState([]), nodes = _h[0], setNodes = _h[1];
+    var _j = React.useState({}), extensionCounts = _j[0], setExtensionCounts = _j[1];
+    // Track mount state
+    React.useEffect(function () {
+        mountedRef.current = true;
+        return function () {
+            mountedRef.current = false;
+        };
+    }, []);
+    // Get color for file extension
+    var getColorForExtension = React.useCallback(function (extension, isDirectory) {
+        if (isDirectory === void 0) { isDirectory = false; }
+        if (isDirectory)
+            return EXTENSION_COLORS.directory;
+        if (!extension)
+            return EXTENSION_COLORS.unknown;
+        var ext = extension.toLowerCase().replace('.', '');
+        return EXTENSION_COLORS[ext] || EXTENSION_COLORS.unknown;
+    }, []);
+    // Convert hierarchy to D3 hierarchy
+    var convertToD3Hierarchy = React.useCallback(function (data) {
+        return d3__namespace.hierarchy(data, function (d) { return d.children; });
+    }, []);
+    // Create nodes from hierarchy
+    var createNodes = React.useCallback(function (hierarchyData) {
+        var root = convertToD3Hierarchy(hierarchyData);
+        // Calculate sizes and create nodes
+        root.sum(function (d) { return d.isDirectory ? 0 : (d.size || 1); });
+        var nodes = [];
+        var extCounts = {};
+        root.each(function (node) {
+            var radius = node.data.isDirectory
+                ? Math.max(20, Math.min(60, Math.sqrt((node.value || 1) / 10) + 15))
+                : Math.max(8, Math.min(25, Math.sqrt((node.data.size || 1) / 100) + 5));
+            var extension = node.data.extension || undefined;
+            var color = getColorForExtension(extension, node.data.isDirectory);
+            // Count extensions
+            var ext = node.data.isDirectory ? 'directory' : (extension || 'unknown');
+            extCounts[ext] = (extCounts[ext] || 0) + 1;
+            var graphNode = Object.assign(node, {
+                id: node.data.id || "".concat(node.data.name, "-").concat(Math.random()),
+                name: node.data.name,
+                type: node.data.isDirectory ? 'directory' : 'file',
+                extension: extension,
+                size: node.data.size || 1,
+                radius: radius,
+                color: color
+            });
+            nodes.push(graphNode);
+        });
+        setExtensionCounts(extCounts);
+        return nodes;
+    }, [convertToD3Hierarchy, getColorForExtension]);
+    // Initialize visualization
+    React.useEffect(function () {
+        if (!mountedRef.current || !hierarchy || !svgRef.current || !containerRef.current)
+            return;
+        var svg = d3__namespace.select(svgRef.current);
+        var container = containerRef.current;
+        var width = container.clientWidth || 800;
+        var height = container.clientHeight || 600;
+        // Clear previous content and zoom state
+        svg.selectAll('*').remove();
+        setZoom(null);
+        // Create main group first
+        var g = svg.append('g');
+        // Create zoom behavior with proper error handling
+        var zoomBehavior = d3__namespace.zoom()
+            .scaleExtent([0.1, 4])
+            .on('zoom', function (event) {
+            if (mountedRef.current && event && event.transform && g && g.node()) {
+                g.attr('transform', event.transform);
+            }
+        });
+        // Apply zoom behavior to SVG
+        try {
+            svg.call(zoomBehavior);
+            if (mountedRef.current) {
+                setZoom(zoomBehavior);
+            }
+        }
+        catch (error) {
+            console.warn('Failed to initialize zoom behavior:', error);
+            if (mountedRef.current) {
+                setZoom(null);
+            }
+        }
+        // Create nodes
+        var graphNodes = createNodes(hierarchy);
+        setNodes(graphNodes);
+        // Create force simulation
+        var sim = d3__namespace.forceSimulation(graphNodes)
+            .force('charge', d3__namespace.forceManyBody().strength(-300))
+            .force('center', d3__namespace.forceCenter(width / 2, height / 2))
+            .force('collision', d3__namespace.forceCollide().radius(function (d) { return d.radius + 5; }))
+            .force('x', d3__namespace.forceX(width / 2).strength(0.1))
+            .force('y', d3__namespace.forceY(height / 2).strength(0.1));
+        setSimulation(sim);
+        // Create tooltip
+        var tooltip = d3__namespace.select(container)
+            .append('div')
+            .attr('class', 'graph-tooltip')
+            .style('position', 'absolute')
+            .style('visibility', 'hidden');
+        // Draw nodes
+        var nodeGroups = g.selectAll('.node')
+            .data(graphNodes)
+            .enter()
+            .append('g')
+            .attr('class', 'node')
+            .style('cursor', 'pointer');
+        // Add circles
+        nodeGroups.append('circle')
+            .attr('class', 'node-circle')
+            .attr('r', function (d) { return d.radius; })
+            .attr('fill', function (d) { return d.color; })
+            .on('click', function (event, d) {
+            if (onNodeClick) {
+                onNodeClick(d.data);
+            }
+        })
+            .on('mouseover', function (event, d) {
+            var _a;
+            tooltip
+                .style('visibility', 'visible')
+                .html("\n            <strong>".concat(d.name, "</strong><br/>\n            Type: ").concat(d.type, "<br/>\n            ").concat(d.extension ? "Extension: ".concat(d.extension, "<br/>") : '', "\n            Size: ").concat(d.type === 'directory' ? "".concat(((_a = d.children) === null || _a === void 0 ? void 0 : _a.length) || 0, " items") : "".concat(d.size, " bytes"), "\n          "))
+                .style('left', (event.pageX - container.offsetLeft + 10) + 'px')
+                .style('top', (event.pageY - container.offsetTop - 10) + 'px')
+                .classed('visible', true);
+        })
+            .on('mouseout', function () {
+            tooltip.style('visibility', 'hidden').classed('visible', false);
+        })
+            .call(d3__namespace.drag()
+            .on('start', function (event, d) {
+            if (!event.active)
+                sim.alphaTarget(0.3).restart();
+            d.fx = d.x;
+            d.fy = d.y;
+        })
+            .on('drag', function (event, d) {
+            d.fx = event.x;
+            d.fy = event.y;
+        })
+            .on('end', function (event, d) {
+            if (!event.active)
+                sim.alphaTarget(0);
+            d.fx = null;
+            d.fy = null;
+        }));
+        // Add text labels
+        nodeGroups.append('text')
+            .attr('class', 'node-text')
+            .text(function (d) { return d.name.length > 10 ? d.name.substring(0, 8) + '...' : d.name; })
+            .attr('font-size', function (d) { return Math.max(8, Math.min(12, d.radius / 3)); })
+            .attr('dy', function (d) { return d.radius > 15 ? 0 : -d.radius - 5; });
+        // Update positions on simulation tick
+        sim.on('tick', function () {
+            nodeGroups
+                .attr('transform', function (d) { return "translate(".concat(d.x, ",").concat(d.y, ")"); });
+        });
+        // Cleanup function
+        return function () {
+            tooltip.remove();
+            sim.stop();
+            if (mountedRef.current) {
+                setZoom(null);
+                setSimulation(null);
+            }
+        };
+    }, [hierarchy, createNodes, onNodeClick]);
+    // Handle search
+    React.useEffect(function () {
+        if (!svgRef.current || !nodes.length)
+            return;
+        var svg = d3__namespace.select(svgRef.current);
+        if (searchQuery.trim()) {
+            var query_1 = searchQuery.toLowerCase();
+            svg.selectAll('.node-circle')
+                .classed('node-highlighted', function (d) {
+                return d.name.toLowerCase().includes(query_1);
+            });
+            svg.selectAll('.node-text')
+                .classed('node-highlighted-text', function (d) {
+                return d.name.toLowerCase().includes(query_1);
+            });
+        }
+        else {
+            svg.selectAll('.node-circle').classed('node-highlighted', false);
+            svg.selectAll('.node-text').classed('node-highlighted-text', false);
+        }
+    }, [searchQuery, nodes]);
+    // Zoom functions
+    var handleZoomIn = React.useCallback(function () {
+        if (!mountedRef.current || !zoom || !svgRef.current) {
+            console.warn('Zoom behavior not initialized or component not mounted');
+            return;
+        }
+        try {
+            d3__namespace.select(svgRef.current).transition().duration(300).call(zoom.scaleBy, 1.5);
+        }
+        catch (error) {
+            console.warn('Zoom in failed:', error);
+        }
+    }, [zoom]);
+    var handleZoomOut = React.useCallback(function () {
+        if (!mountedRef.current || !zoom || !svgRef.current) {
+            console.warn('Zoom behavior not initialized or component not mounted');
+            return;
+        }
+        try {
+            d3__namespace.select(svgRef.current).transition().duration(300).call(zoom.scaleBy, 0.75);
+        }
+        catch (error) {
+            console.warn('Zoom out failed:', error);
+        }
+    }, [zoom]);
+    var handleResetZoom = React.useCallback(function () {
+        if (!mountedRef.current || !zoom || !svgRef.current || !containerRef.current) {
+            console.warn('Zoom behavior not initialized or component not mounted');
+            return;
+        }
+        try {
+            var svg = d3__namespace.select(svgRef.current);
+            var width = containerRef.current.clientWidth;
+            var height = containerRef.current.clientHeight;
+            svg.transition().duration(500).call(zoom.transform, d3__namespace.zoomIdentity.translate(width / 2, height / 2).scale(1));
+        }
+        catch (error) {
+            console.warn('Reset zoom failed:', error);
+        }
+    }, [zoom]);
+    // Early return if no hierarchy data - but after all hooks
+    if (!hierarchy) {
+        return (jsxRuntime.jsx("div", { className: "codebase-graph ".concat(theme, " ").concat(className), children: jsxRuntime.jsxs("div", { className: "graph-loading", children: [jsxRuntime.jsx("div", { className: "graph-loading-spinner" }), jsxRuntime.jsx("p", { children: "No data available for visualization" })] }) }));
+    }
+    return (jsxRuntime.jsxs("div", { className: "codebase-graph ".concat(theme, " ").concat(className), children: [jsxRuntime.jsxs("div", { className: "graph-header", children: [jsxRuntime.jsx("h3", { className: "graph-title", children: "Graph Visualization" }), jsxRuntime.jsxs("div", { className: "graph-controls", children: [jsxRuntime.jsx("div", { className: "graph-search", children: jsxRuntime.jsx("input", { type: "text", placeholder: "Search files...", value: searchQuery, onChange: function (e) { return setSearchQuery(e.target.value); } }) }), jsxRuntime.jsxs("div", { className: "zoom-controls", children: [jsxRuntime.jsx("button", { className: "zoom-button", onClick: handleZoomIn, title: "Zoom In", disabled: !zoom, children: "+" }), jsxRuntime.jsx("button", { className: "zoom-button", onClick: handleResetZoom, title: "Reset Zoom", disabled: !zoom, children: "\u2302" }), jsxRuntime.jsx("button", { className: "zoom-button", onClick: handleZoomOut, title: "Zoom Out", disabled: !zoom, children: "\u2212" })] })] })] }), jsxRuntime.jsxs("div", { className: "graph-container", ref: containerRef, children: [jsxRuntime.jsx("svg", { ref: svgRef, className: "graph-svg" }), Object.keys(extensionCounts).length > 0 && (jsxRuntime.jsxs("div", { className: "legend", children: [jsxRuntime.jsx("div", { className: "legend-title", children: "File Types" }), Object.keys(extensionCounts)
+                                .map(function (ext) { return [ext, extensionCounts[ext]]; })
+                                .sort(function (_a, _b) {
+                                var a = _a[1];
+                                var b = _b[1];
+                                return b - a;
+                            })
+                                .slice(0, 15)
+                                .map(function (_a) {
+                                var ext = _a[0], count = _a[1];
+                                return (jsxRuntime.jsxs("div", { className: "legend-item", children: [jsxRuntime.jsx("div", { className: "legend-color", style: { backgroundColor: getColorForExtension(ext, ext === 'directory') } }), jsxRuntime.jsxs("span", { children: [ext === 'directory' ? 'Folders' : ".".concat(ext), " (", count, ")"] })] }, ext));
+                            })] }))] })] }));
+};
+
 var useState = React__namespace.useState, useCallback = React__namespace.useCallback;
 var CodebaseVisualizer = function (_a) {
-    var _b = _a.apiBaseUrl, apiBaseUrl = _b === void 0 ? 'http://localhost:3000' : _b, onFileSelect = _a.onFileSelect, onDirectorySelect = _a.onDirectorySelect, _c = _a.theme, theme = _c === void 0 ? 'light' : _c, _d = _a.defaultRepoUrl, defaultRepoUrl = _d === void 0 ? '' : _d, _e = _a.showGitHubLinks, showGitHubLinks = _e === void 0 ? true : _e, maxDepth = _a.maxDepth, _f = _a.className, className = _f === void 0 ? '' : _f;
+    var _b = _a.apiBaseUrl, apiBaseUrl = _b === void 0 ? 'http://localhost:3000' : _b, onFileSelect = _a.onFileSelect, onDirectorySelect = _a.onDirectorySelect, _c = _a.theme, theme = _c === void 0 ? 'light' : _c, _d = _a.defaultRepoUrl, defaultRepoUrl = _d === void 0 ? '' : _d, _e = _a.showGitHubLinks, showGitHubLinks = _e === void 0 ? true : _e, maxDepth = _a.maxDepth, _f = _a.className, className = _f === void 0 ? '' : _f, _g = _a.viewMode, viewMode = _g === void 0 ? 'tree' : _g;
     var api = useState(function () { return new CodebaseVisualizerAPI(apiBaseUrl); })[0];
-    var _g = useState(defaultRepoUrl), repoUrl = _g[0], setRepoUrl = _g[1];
-    var _h = useState(false), isProcessing = _h[0], setIsProcessing = _h[1];
-    var _j = useState(null), currentJob = _j[0], setCurrentJob = _j[1];
-    var _k = useState(null), jobResult = _k[0], setJobResult = _k[1];
-    var _l = useState(null), error = _l[0], setError = _l[1];
+    var _h = useState(defaultRepoUrl), repoUrl = _h[0], setRepoUrl = _h[1];
+    var _j = useState(false), isProcessing = _j[0], setIsProcessing = _j[1];
+    var _k = useState(null), currentJob = _k[0], setCurrentJob = _k[1];
+    var _l = useState(null), jobResult = _l[0], setJobResult = _l[1];
+    var _m = useState(null), error = _m[0], setError = _m[1];
     var processRepository = useCallback(function () { return __awaiter(void 0, void 0, void 0, function () {
         var job, completedJob, result, err_1;
         return __generator(this, function (_a) {
@@ -600,9 +912,24 @@ var CodebaseVisualizer = function (_a) {
     var handleDirectorySelect = useCallback(function (directory) {
         onDirectorySelect === null || onDirectorySelect === void 0 ? void 0 : onDirectorySelect(directory);
     }, [onDirectorySelect]);
-    return (jsxRuntime.jsxs("div", { className: "codebase-visualizer ".concat(theme, " ").concat(className), children: [jsxRuntime.jsxs("div", { className: "codebase-visualizer-header", children: [jsxRuntime.jsx("h2", { children: "Codebase Visualizer" }), jsxRuntime.jsxs("div", { className: "codebase-visualizer-controls", children: [jsxRuntime.jsx("input", { type: "text", placeholder: "Enter GitHub repository URL (e.g., https://github.com/user/repo)", value: repoUrl, onChange: function (e) { return setRepoUrl(e.target.value); }, className: "repo-input", disabled: isProcessing }), jsxRuntime.jsx("button", { onClick: processRepository, disabled: isProcessing || !repoUrl.trim(), className: "process-button", children: isProcessing ? 'Processing...' : 'Analyze Repository' })] })] }), error && (jsxRuntime.jsxs("div", { className: "codebase-visualizer-error", children: [jsxRuntime.jsx("strong", { children: "Error:" }), " ", error] })), currentJob && (jsxRuntime.jsx("div", { className: "codebase-visualizer-status", children: jsxRuntime.jsxs("div", { className: "status-info", children: [jsxRuntime.jsx("strong", { children: "Repository:" }), " ", currentJob.repo_name, jsxRuntime.jsx("br", {}), jsxRuntime.jsx("strong", { children: "Status:" }), " ", currentJob.status, currentJob.result_data && (jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [jsxRuntime.jsx("br", {}), jsxRuntime.jsx("strong", { children: "Files found:" }), " ", currentJob.result_data.total_files] }))] }) })), isProcessing && (jsxRuntime.jsxs("div", { className: "codebase-visualizer-loading", children: [jsxRuntime.jsx("div", { className: "loading-spinner" }), jsxRuntime.jsx("p", { children: "Processing repository... This may take a few minutes for large repositories." })] })), jobResult && (jsxRuntime.jsx(FileExplorer, { files: jobResult.files, hierarchy: jobResult.hierarchy, onFileSelect: handleFileSelect, onDirectorySelect: handleDirectorySelect, showGitHubLinks: showGitHubLinks, maxDepth: maxDepth, className: theme }))] }));
+    return (jsxRuntime.jsxs("div", { className: "codebase-visualizer ".concat(theme, " ").concat(className), children: [jsxRuntime.jsxs("div", { className: "codebase-visualizer-header", children: [jsxRuntime.jsx("h2", { children: "Codebase Visualizer" }), jsxRuntime.jsxs("div", { className: "codebase-visualizer-controls", children: [jsxRuntime.jsx("input", { type: "text", placeholder: "Enter GitHub repository URL (e.g., https://github.com/user/repo)", value: repoUrl, onChange: function (e) { return setRepoUrl(e.target.value); }, className: "repo-input", disabled: isProcessing }), jsxRuntime.jsx("button", { onClick: processRepository, disabled: isProcessing || !repoUrl.trim(), className: "process-button", children: isProcessing ? 'Processing...' : 'Analyze Repository' })] })] }), error && (jsxRuntime.jsxs("div", { className: "codebase-visualizer-error", children: [jsxRuntime.jsx("strong", { children: "Error:" }), " ", error] })), currentJob && (jsxRuntime.jsx("div", { className: "codebase-visualizer-status", children: jsxRuntime.jsxs("div", { className: "status-info", children: [jsxRuntime.jsx("strong", { children: "Repository:" }), " ", currentJob.repo_name, jsxRuntime.jsx("br", {}), jsxRuntime.jsx("strong", { children: "Status:" }), " ", currentJob.status, currentJob.result_data && (jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [jsxRuntime.jsx("br", {}), jsxRuntime.jsx("strong", { children: "Files found:" }), " ", currentJob.result_data.total_files] }))] }) })), isProcessing && (jsxRuntime.jsxs("div", { className: "codebase-visualizer-loading", children: [jsxRuntime.jsx("div", { className: "loading-spinner" }), jsxRuntime.jsx("p", { children: "Processing repository... This may take a few minutes for large repositories." })] })), jobResult && (jsxRuntime.jsx(jsxRuntime.Fragment, { children: viewMode === 'tree' ? (jsxRuntime.jsx(FileExplorer, { files: jobResult.files, hierarchy: jobResult.hierarchy, onFileSelect: handleFileSelect, onDirectorySelect: handleDirectorySelect, showGitHubLinks: showGitHubLinks, maxDepth: maxDepth, className: theme })) : (jsxRuntime.jsx(CodebaseGraph, { files: jobResult.files, hierarchy: jobResult.hierarchy, onNodeClick: function (item) {
+                        if ('file_path' in item) {
+                            // It's a FileItem
+                            if (item.is_directory) {
+                                handleDirectorySelect(item);
+                            }
+                            else {
+                                handleFileSelect(item);
+                            }
+                        }
+                        else {
+                            // It's a HierarchyNode - convert to FileItem-like object
+                            console.log('Selected node:', item);
+                        }
+                    }, theme: theme, className: theme })) }))] }));
 };
 
+exports.CodebaseGraph = CodebaseGraph;
 exports.CodebaseVisualizer = CodebaseVisualizer;
 exports.CodebaseVisualizerAPI = CodebaseVisualizerAPI;
 exports.FileExplorer = FileExplorer;

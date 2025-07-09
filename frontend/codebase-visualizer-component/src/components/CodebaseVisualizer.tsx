@@ -3,6 +3,7 @@ const { useState, useCallback } = React;
 import { CodebaseVisualizerProps, Job, JobResult, FileItem } from '../types';
 import { CodebaseVisualizerAPI } from '../api';
 import { FileExplorer } from './FileExplorer';
+import { CodebaseGraph } from './CodebaseGraph';
 import './CodebaseVisualizer.css';
 
 export const CodebaseVisualizer: React.FC<CodebaseVisualizerProps> = ({
@@ -13,7 +14,8 @@ export const CodebaseVisualizer: React.FC<CodebaseVisualizerProps> = ({
   defaultRepoUrl = '',
   showGitHubLinks = true,
   maxDepth,
-  className = ''
+  className = '',
+  viewMode = 'tree'
 }) => {
   const [api] = useState(() => new CodebaseVisualizerAPI(apiBaseUrl));
   const [repoUrl, setRepoUrl] = useState(defaultRepoUrl);
@@ -120,15 +122,39 @@ export const CodebaseVisualizer: React.FC<CodebaseVisualizerProps> = ({
       )}
 
       {jobResult && (
-        <FileExplorer
-          files={jobResult.files}
-          hierarchy={jobResult.hierarchy}
-          onFileSelect={handleFileSelect}
-          onDirectorySelect={handleDirectorySelect}
-          showGitHubLinks={showGitHubLinks}
-          maxDepth={maxDepth}
-          className={theme}
-        />
+        <>
+          {viewMode === 'tree' ? (
+            <FileExplorer
+              files={jobResult.files}
+              hierarchy={jobResult.hierarchy}
+              onFileSelect={handleFileSelect}
+              onDirectorySelect={handleDirectorySelect}
+              showGitHubLinks={showGitHubLinks}
+              maxDepth={maxDepth}
+              className={theme}
+            />
+          ) : (
+            <CodebaseGraph
+              files={jobResult.files}
+              hierarchy={jobResult.hierarchy}
+              onNodeClick={(item) => {
+                if ('file_path' in item) {
+                  // It's a FileItem
+                  if (item.is_directory) {
+                    handleDirectorySelect(item);
+                  } else {
+                    handleFileSelect(item);
+                  }
+                } else {
+                  // It's a HierarchyNode - convert to FileItem-like object
+                  console.log('Selected node:', item);
+                }
+              }}
+              theme={theme}
+              className={theme}
+            />
+          )}
+        </>
       )}
     </div>
   );

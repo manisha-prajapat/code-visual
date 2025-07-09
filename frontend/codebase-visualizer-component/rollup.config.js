@@ -6,7 +6,7 @@ import peerDepsExternal from 'rollup-plugin-peer-deps-external';
 
 export default {
   input: 'src/index.ts',
-  external: ['react', 'react-dom'],
+  external: ['react', 'react-dom', 'd3'],
   output: [
     {
       file: 'dist/index.js',
