@@ -95,19 +95,28 @@ export const CodebaseGraph: React.FC<CodebaseGraphProps> = ({
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const mountedRef = useRef(false);
+  const zoomRef = useRef<any>(null);
+  const simulationRef = useRef<any>(null);
   
-  // Safe state initialization
-  const [searchQuery, setSearchQuery] = useState<string>('');
-  const [zoom, setZoom] = useState<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
-  const [simulation, setSimulation] = useState<d3.Simulation<GraphNode, undefined> | null>(null);
+  // Simple state without complex types
+  const [searchQuery, setSearchQuery] = useState('');
   const [nodes, setNodes] = useState<GraphNode[]>([]);
   const [extensionCounts, setExtensionCounts] = useState<Record<string, number>>({});
+  const [isInitialized, setIsInitialized] = useState(false);
 
   // Track mount state
   useEffect(() => {
     mountedRef.current = true;
     return () => {
       mountedRef.current = false;
+      // Clean up D3 objects
+      if (zoomRef.current) {
+        zoomRef.current = null;
+      }
+      if (simulationRef.current) {
+        simulationRef.current.stop();
+        simulationRef.current = null;
+      }
     };
   }, []);
 
@@ -188,32 +197,43 @@ export const CodebaseGraph: React.FC<CodebaseGraphProps> = ({
     const width = container.clientWidth || 800;
     const height = container.clientHeight || 600;
 
-    // Clear previous content and zoom state
+    // Clear previous content and reset refs
     svg.selectAll('*').remove();
-    setZoom(null);
+    zoomRef.current = null;
+    if (simulationRef.current) {
+      simulationRef.current.stop();
+    }
+    simulationRef.current = null;
 
     // Create main group first
     const g = svg.append('g');
 
-    // Create zoom behavior with proper error handling
-    const zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
-      .scaleExtent([0.1, 4])
-      .on('zoom', (event) => {
-        if (mountedRef.current && event && event.transform && g && g.node()) {
-          g.attr('transform', event.transform);
-        }
-      });
-
-    // Apply zoom behavior to SVG
+    // Create zoom behavior with defensive initialization
+    let zoomBehavior: any = null;
     try {
-      svg.call(zoomBehavior);
-      if (mountedRef.current) {
-        setZoom(zoomBehavior);
+      zoomBehavior = d3.zoom<SVGSVGElement, unknown>()
+        .scaleExtent([0.1, 4])
+        .on('zoom', (event) => {
+          if (mountedRef.current && event && event.transform && g && g.node()) {
+            try {
+              g.attr('transform', event.transform);
+            } catch (transformError) {
+              console.warn('Transform error:', transformError);
+            }
+          }
+        });
+
+      // Apply zoom behavior to SVG
+      if (zoomBehavior && svg && svg.node()) {
+        svg.call(zoomBehavior);
+        if (mountedRef.current) {
+          zoomRef.current = zoomBehavior;
+        }
       }
     } catch (error) {
       console.warn('Failed to initialize zoom behavior:', error);
       if (mountedRef.current) {
-        setZoom(null);
+        zoomRef.current = null;
       }
     }
 
@@ -229,7 +249,7 @@ export const CodebaseGraph: React.FC<CodebaseGraphProps> = ({
       .force('x', d3.forceX(width / 2).strength(0.1))
       .force('y', d3.forceY(height / 2).strength(0.1));
 
-    setSimulation(sim);
+    simulationRef.current = sim;
 
     // Create tooltip
     const tooltip = d3.select(container)
@@ -274,7 +294,7 @@ export const CodebaseGraph: React.FC<CodebaseGraphProps> = ({
       })
       .call(d3.drag<SVGCircleElement, GraphNode>()
         .on('start', (event, d) => {
-          if (!event.active) sim.alphaTarget(0.3).restart();
+          if (!event.active && simulationRef.current) simulationRef.current.alphaTarget(0.3).restart();
           d.fx = d.x;
           d.fy = d.y;
         })
@@ -283,7 +303,7 @@ export const CodebaseGraph: React.FC<CodebaseGraphProps> = ({
           d.fy = event.y;
         })
         .on('end', (event, d) => {
-          if (!event.active) sim.alphaTarget(0);
+          if (!event.active && simulationRef.current) simulationRef.current.alphaTarget(0);
           d.fx = null;
           d.fy = null;
         })
@@ -302,13 +322,17 @@ export const CodebaseGraph: React.FC<CodebaseGraphProps> = ({
         .attr('transform', d => `translate(${d.x},${d.y})`);
     });
 
+    setIsInitialized(true);
+
     // Cleanup function
     return () => {
       tooltip.remove();
-      sim.stop();
+      if (simulationRef.current) {
+        simulationRef.current.stop();
+      }
       if (mountedRef.current) {
-        setZoom(null);
-        setSimulation(null);
+        zoomRef.current = null;
+        simulationRef.current = null;
       }
     };
   }, [hierarchy, createNodes, onNodeClick]);
@@ -339,35 +363,35 @@ export const CodebaseGraph: React.FC<CodebaseGraphProps> = ({
 
   // Zoom functions
   const handleZoomIn = useCallback(() => {
-    if (!mountedRef.current || !zoom || !svgRef.current) {
+    if (!mountedRef.current || !zoomRef.current || !svgRef.current) {
       console.warn('Zoom behavior not initialized or component not mounted');
       return;
     }
     try {
       d3.select(svgRef.current).transition().duration(300).call(
-        zoom.scaleBy, 1.5
+        zoomRef.current.scaleBy, 1.5
       );
     } catch (error) {
       console.warn('Zoom in failed:', error);
     }
-  }, [zoom]);
+  }, []);
 
   const handleZoomOut = useCallback(() => {
-    if (!mountedRef.current || !zoom || !svgRef.current) {
+    if (!mountedRef.current || !zoomRef.current || !svgRef.current) {
       console.warn('Zoom behavior not initialized or component not mounted');
       return;
     }
     try {
       d3.select(svgRef.current).transition().duration(300).call(
-        zoom.scaleBy, 0.75
+        zoomRef.current.scaleBy, 0.75
       );
     } catch (error) {
       console.warn('Zoom out failed:', error);
     }
-  }, [zoom]);
+  }, []);
 
   const handleResetZoom = useCallback(() => {
-    if (!mountedRef.current || !zoom || !svgRef.current || !containerRef.current) {
+    if (!mountedRef.current || !zoomRef.current || !svgRef.current || !containerRef.current) {
       console.warn('Zoom behavior not initialized or component not mounted');
       return;
     }
@@ -377,13 +401,13 @@ export const CodebaseGraph: React.FC<CodebaseGraphProps> = ({
       const height = containerRef.current.clientHeight;
       
       svg.transition().duration(500).call(
-        zoom.transform,
+        zoomRef.current.transform,
         d3.zoomIdentity.translate(width / 2, height / 2).scale(1)
       );
     } catch (error) {
       console.warn('Reset zoom failed:', error);
     }
-  }, [zoom]);
+  }, []);
 
   // Early return if no hierarchy data - but after all hooks
   if (!hierarchy) {
@@ -415,7 +439,7 @@ export const CodebaseGraph: React.FC<CodebaseGraphProps> = ({
               className="zoom-button" 
               onClick={handleZoomIn} 
               title="Zoom In"
-              disabled={!zoom}
+              disabled={!isInitialized || !zoomRef.current}
             >
               +
             </button>
@@ -423,7 +447,7 @@ export const CodebaseGraph: React.FC<CodebaseGraphProps> = ({
               className="zoom-button" 
               onClick={handleResetZoom} 
               title="Reset Zoom"
-              disabled={!zoom}
+              disabled={!isInitialized || !zoomRef.current}
             >
               ⌂
             </button>
@@ -431,7 +455,7 @@ export const CodebaseGraph: React.FC<CodebaseGraphProps> = ({
               className="zoom-button" 
               onClick={handleZoomOut} 
               title="Zoom Out"
-              disabled={!zoom}
+              disabled={!isInitialized || !zoomRef.current}
             >
               −
             </button>

@@ -599,16 +599,26 @@ var CodebaseGraph = function (_a) {
     var svgRef = React.useRef(null);
     var containerRef = React.useRef(null);
     var mountedRef = React.useRef(false);
+    var zoomRef = React.useRef(null);
+    var simulationRef = React.useRef(null);
+    // Simple state without complex types
     var _e = React.useState(''), searchQuery = _e[0], setSearchQuery = _e[1];
-    var _f = React.useState(null), zoom = _f[0], setZoom = _f[1];
-    var _g = React.useState(null); _g[0]; var setSimulation = _g[1];
-    var _h = React.useState([]), nodes = _h[0], setNodes = _h[1];
-    var _j = React.useState({}), extensionCounts = _j[0], setExtensionCounts = _j[1];
+    var _f = React.useState([]), nodes = _f[0], setNodes = _f[1];
+    var _g = React.useState({}), extensionCounts = _g[0], setExtensionCounts = _g[1];
+    var _h = React.useState(false), isInitialized = _h[0], setIsInitialized = _h[1];
     // Track mount state
     React.useEffect(function () {
         mountedRef.current = true;
         return function () {
             mountedRef.current = false;
+            // Clean up D3 objects
+            if (zoomRef.current) {
+                zoomRef.current = null;
+            }
+            if (simulationRef.current) {
+                simulationRef.current.stop();
+                simulationRef.current = null;
+            }
         };
     }, []);
     // Get color for file extension
@@ -627,33 +637,47 @@ var CodebaseGraph = function (_a) {
     }, []);
     // Create nodes from hierarchy
     var createNodes = React.useCallback(function (hierarchyData) {
-        var root = convertToD3Hierarchy(hierarchyData);
-        // Calculate sizes and create nodes
-        root.sum(function (d) { return d.isDirectory ? 0 : (d.size || 1); });
-        var nodes = [];
-        var extCounts = {};
-        root.each(function (node) {
-            var radius = node.data.isDirectory
-                ? Math.max(20, Math.min(60, Math.sqrt((node.value || 1) / 10) + 15))
-                : Math.max(8, Math.min(25, Math.sqrt((node.data.size || 1) / 100) + 5));
-            var extension = node.data.extension || undefined;
-            var color = getColorForExtension(extension, node.data.isDirectory);
-            // Count extensions
-            var ext = node.data.isDirectory ? 'directory' : (extension || 'unknown');
-            extCounts[ext] = (extCounts[ext] || 0) + 1;
-            var graphNode = Object.assign(node, {
-                id: node.data.id || "".concat(node.data.name, "-").concat(Math.random()),
-                name: node.data.name,
-                type: node.data.isDirectory ? 'directory' : 'file',
-                extension: extension,
-                size: node.data.size || 1,
-                radius: radius,
-                color: color
+        try {
+            if (!hierarchyData) {
+                console.warn('No hierarchy data provided to createNodes');
+                return [];
+            }
+            var root = convertToD3Hierarchy(hierarchyData);
+            // Calculate sizes and create nodes
+            root.sum(function (d) { return d.isDirectory ? 0 : (d.size || 1); });
+            var nodes_1 = [];
+            var extCounts_1 = {};
+            root.each(function (node) {
+                if (!node || !node.data) {
+                    console.warn('Invalid node data encountered');
+                    return;
+                }
+                var radius = node.data.isDirectory
+                    ? Math.max(20, Math.min(60, Math.sqrt((node.value || 1) / 10) + 15))
+                    : Math.max(8, Math.min(25, Math.sqrt((node.data.size || 1) / 100) + 5));
+                var extension = node.data.extension || undefined;
+                var color = getColorForExtension(extension, node.data.isDirectory);
+                // Count extensions
+                var ext = node.data.isDirectory ? 'directory' : (extension || 'unknown');
+                extCounts_1[ext] = (extCounts_1[ext] || 0) + 1;
+                var graphNode = Object.assign(node, {
+                    id: node.data.id || "".concat(node.data.name || 'unknown', "-").concat(Math.random()),
+                    name: node.data.name || 'Unknown',
+                    type: node.data.isDirectory ? 'directory' : 'file',
+                    extension: extension,
+                    size: node.data.size || 1,
+                    radius: radius,
+                    color: color
+                });
+                nodes_1.push(graphNode);
             });
-            nodes.push(graphNode);
-        });
-        setExtensionCounts(extCounts);
-        return nodes;
+            setExtensionCounts(extCounts_1);
+            return nodes_1;
+        }
+        catch (error) {
+            console.error('Error creating nodes from hierarchy:', error);
+            return [];
+        }
     }, [convertToD3Hierarchy, getColorForExtension]);
     // Initialize visualization
     React.useEffect(function () {
@@ -663,30 +687,42 @@ var CodebaseGraph = function (_a) {
         var container = containerRef.current;
         var width = container.clientWidth || 800;
         var height = container.clientHeight || 600;
-        // Clear previous content and zoom state
+        // Clear previous content and reset refs
         svg.selectAll('*').remove();
-        setZoom(null);
+        zoomRef.current = null;
+        if (simulationRef.current) {
+            simulationRef.current.stop();
+        }
+        simulationRef.current = null;
         // Create main group first
         var g = svg.append('g');
-        // Create zoom behavior with proper error handling
-        var zoomBehavior = d3__namespace.zoom()
-            .scaleExtent([0.1, 4])
-            .on('zoom', function (event) {
-            if (mountedRef.current && event && event.transform && g && g.node()) {
-                g.attr('transform', event.transform);
-            }
-        });
-        // Apply zoom behavior to SVG
+        // Create zoom behavior with defensive initialization
+        var zoomBehavior = null;
         try {
-            svg.call(zoomBehavior);
-            if (mountedRef.current) {
-                setZoom(zoomBehavior);
+            zoomBehavior = d3__namespace.zoom()
+                .scaleExtent([0.1, 4])
+                .on('zoom', function (event) {
+                if (mountedRef.current && event && event.transform && g && g.node()) {
+                    try {
+                        g.attr('transform', event.transform);
+                    }
+                    catch (transformError) {
+                        console.warn('Transform error:', transformError);
+                    }
+                }
+            });
+            // Apply zoom behavior to SVG
+            if (zoomBehavior && svg && svg.node()) {
+                svg.call(zoomBehavior);
+                if (mountedRef.current) {
+                    zoomRef.current = zoomBehavior;
+                }
             }
         }
         catch (error) {
             console.warn('Failed to initialize zoom behavior:', error);
             if (mountedRef.current) {
-                setZoom(null);
+                zoomRef.current = null;
             }
         }
         // Create nodes
@@ -699,7 +735,7 @@ var CodebaseGraph = function (_a) {
             .force('collision', d3__namespace.forceCollide().radius(function (d) { return d.radius + 5; }))
             .force('x', d3__namespace.forceX(width / 2).strength(0.1))
             .force('y', d3__namespace.forceY(height / 2).strength(0.1));
-        setSimulation(sim);
+        simulationRef.current = sim;
         // Create tooltip
         var tooltip = d3__namespace.select(container)
             .append('div')
@@ -737,8 +773,8 @@ var CodebaseGraph = function (_a) {
         })
             .call(d3__namespace.drag()
             .on('start', function (event, d) {
-            if (!event.active)
-                sim.alphaTarget(0.3).restart();
+            if (!event.active && simulationRef.current)
+                simulationRef.current.alphaTarget(0.3).restart();
             d.fx = d.x;
             d.fy = d.y;
         })
@@ -747,8 +783,8 @@ var CodebaseGraph = function (_a) {
             d.fy = event.y;
         })
             .on('end', function (event, d) {
-            if (!event.active)
-                sim.alphaTarget(0);
+            if (!event.active && simulationRef.current)
+                simulationRef.current.alphaTarget(0);
             d.fx = null;
             d.fy = null;
         }));
@@ -763,13 +799,16 @@ var CodebaseGraph = function (_a) {
             nodeGroups
                 .attr('transform', function (d) { return "translate(".concat(d.x, ",").concat(d.y, ")"); });
         });
+        setIsInitialized(true);
         // Cleanup function
         return function () {
             tooltip.remove();
-            sim.stop();
+            if (simulationRef.current) {
+                simulationRef.current.stop();
+            }
             if (mountedRef.current) {
-                setZoom(null);
-                setSimulation(null);
+                zoomRef.current = null;
+                simulationRef.current = null;
             }
         };
     }, [hierarchy, createNodes, onNodeClick]);
@@ -796,31 +835,31 @@ var CodebaseGraph = function (_a) {
     }, [searchQuery, nodes]);
     // Zoom functions
     var handleZoomIn = React.useCallback(function () {
-        if (!mountedRef.current || !zoom || !svgRef.current) {
+        if (!mountedRef.current || !zoomRef.current || !svgRef.current) {
             console.warn('Zoom behavior not initialized or component not mounted');
             return;
         }
         try {
-            d3__namespace.select(svgRef.current).transition().duration(300).call(zoom.scaleBy, 1.5);
+            d3__namespace.select(svgRef.current).transition().duration(300).call(zoomRef.current.scaleBy, 1.5);
         }
         catch (error) {
             console.warn('Zoom in failed:', error);
         }
-    }, [zoom]);
+    }, []);
     var handleZoomOut = React.useCallback(function () {
-        if (!mountedRef.current || !zoom || !svgRef.current) {
+        if (!mountedRef.current || !zoomRef.current || !svgRef.current) {
             console.warn('Zoom behavior not initialized or component not mounted');
             return;
         }
         try {
-            d3__namespace.select(svgRef.current).transition().duration(300).call(zoom.scaleBy, 0.75);
+            d3__namespace.select(svgRef.current).transition().duration(300).call(zoomRef.current.scaleBy, 0.75);
         }
         catch (error) {
             console.warn('Zoom out failed:', error);
         }
-    }, [zoom]);
+    }, []);
     var handleResetZoom = React.useCallback(function () {
-        if (!mountedRef.current || !zoom || !svgRef.current || !containerRef.current) {
+        if (!mountedRef.current || !zoomRef.current || !svgRef.current || !containerRef.current) {
             console.warn('Zoom behavior not initialized or component not mounted');
             return;
         }
@@ -828,17 +867,17 @@ var CodebaseGraph = function (_a) {
             var svg = d3__namespace.select(svgRef.current);
             var width = containerRef.current.clientWidth;
             var height = containerRef.current.clientHeight;
-            svg.transition().duration(500).call(zoom.transform, d3__namespace.zoomIdentity.translate(width / 2, height / 2).scale(1));
+            svg.transition().duration(500).call(zoomRef.current.transform, d3__namespace.zoomIdentity.translate(width / 2, height / 2).scale(1));
         }
         catch (error) {
             console.warn('Reset zoom failed:', error);
         }
-    }, [zoom]);
+    }, []);
     // Early return if no hierarchy data - but after all hooks
     if (!hierarchy) {
         return (jsxRuntime.jsx("div", { className: "codebase-graph ".concat(theme, " ").concat(className), children: jsxRuntime.jsxs("div", { className: "graph-loading", children: [jsxRuntime.jsx("div", { className: "graph-loading-spinner" }), jsxRuntime.jsx("p", { children: "No data available for visualization" })] }) }));
     }
-    return (jsxRuntime.jsxs("div", { className: "codebase-graph ".concat(theme, " ").concat(className), children: [jsxRuntime.jsxs("div", { className: "graph-header", children: [jsxRuntime.jsx("h3", { className: "graph-title", children: "Graph Visualization" }), jsxRuntime.jsxs("div", { className: "graph-controls", children: [jsxRuntime.jsx("div", { className: "graph-search", children: jsxRuntime.jsx("input", { type: "text", placeholder: "Search files...", value: searchQuery, onChange: function (e) { return setSearchQuery(e.target.value); } }) }), jsxRuntime.jsxs("div", { className: "zoom-controls", children: [jsxRuntime.jsx("button", { className: "zoom-button", onClick: handleZoomIn, title: "Zoom In", disabled: !zoom, children: "+" }), jsxRuntime.jsx("button", { className: "zoom-button", onClick: handleResetZoom, title: "Reset Zoom", disabled: !zoom, children: "\u2302" }), jsxRuntime.jsx("button", { className: "zoom-button", onClick: handleZoomOut, title: "Zoom Out", disabled: !zoom, children: "\u2212" })] })] })] }), jsxRuntime.jsxs("div", { className: "graph-container", ref: containerRef, children: [jsxRuntime.jsx("svg", { ref: svgRef, className: "graph-svg" }), Object.keys(extensionCounts).length > 0 && (jsxRuntime.jsxs("div", { className: "legend", children: [jsxRuntime.jsx("div", { className: "legend-title", children: "File Types" }), Object.keys(extensionCounts)
+    return (jsxRuntime.jsxs("div", { className: "codebase-graph ".concat(theme, " ").concat(className), children: [jsxRuntime.jsxs("div", { className: "graph-header", children: [jsxRuntime.jsx("h3", { className: "graph-title", children: "Graph Visualization" }), jsxRuntime.jsxs("div", { className: "graph-controls", children: [jsxRuntime.jsx("div", { className: "graph-search", children: jsxRuntime.jsx("input", { type: "text", placeholder: "Search files...", value: searchQuery, onChange: function (e) { return setSearchQuery(e.target.value); } }) }), jsxRuntime.jsxs("div", { className: "zoom-controls", children: [jsxRuntime.jsx("button", { className: "zoom-button", onClick: handleZoomIn, title: "Zoom In", disabled: !isInitialized || !zoomRef.current, children: "+" }), jsxRuntime.jsx("button", { className: "zoom-button", onClick: handleResetZoom, title: "Reset Zoom", disabled: !isInitialized || !zoomRef.current, children: "\u2302" }), jsxRuntime.jsx("button", { className: "zoom-button", onClick: handleZoomOut, title: "Zoom Out", disabled: !isInitialized || !zoomRef.current, children: "\u2212" })] })] })] }), jsxRuntime.jsxs("div", { className: "graph-container", ref: containerRef, children: [jsxRuntime.jsx("svg", { ref: svgRef, className: "graph-svg" }), Object.keys(extensionCounts).length > 0 && (jsxRuntime.jsxs("div", { className: "legend", children: [jsxRuntime.jsx("div", { className: "legend-title", children: "File Types" }), Object.keys(extensionCounts)
                                 .map(function (ext) { return [ext, extensionCounts[ext]]; })
                                 .sort(function (_a, _b) {
                                 var a = _a[1];
